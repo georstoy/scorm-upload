@@ -2,4 +2,4 @@ interface IController {
     initRoutes(): any
 }
 
-export default Controller;
+export default IController;
