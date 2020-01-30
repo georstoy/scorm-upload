@@ -6,13 +6,15 @@ import * as multer from "multer";
 import * as mime from "mime";
 import * as uuidv4 from "uuid/v4";
 import * as aws from "aws-sdk";
+import * as unzipper from "unzipper";
 
-import IControllerBase from "interfaces/IControllerBase.interface";
+import IController from "interfaces/IController.interface";
 
-class ScormController implements IControllerBase {
+class ScormController implements IController {
   public router;
 
   private upload;
+  private tmpStorage;
   private bucketName = "scorm-files";
   private s3;
 
@@ -20,6 +22,7 @@ class ScormController implements IControllerBase {
     this.router = express.Router();
 
     const tmpStorage = `${__dirname}/../tmp/`;
+    this.tmpStorage = tmpStorage;
     this.upload = multer({
       storage: multer.diskStorage({
         destination: (req, file, cb) => {
@@ -90,8 +93,31 @@ class ScormController implements IControllerBase {
 
   private parse = (req, res) => {
     const file = req.file;
-
+    if (!file) {
+      res.status(500).send("Sorry");
+    }
+    // unzip
+    fs.createReadStream(file.path)
+      .pipe(unzipper.Extract({ path: this.tmpStorage }))
     
+    /* to go over the zipped files one by one
+    .pipe(unzipper.Parse())
+    .on('entry', function (entry) {
+      const fileName = entry.path;
+      const type = entry.type; // 'Directory' or 'File'
+      const size = entry.vars.uncompressedSize; // There is also compressedSize;
+      if (fileName === "this IS the file I'm looking for") {
+        entry.pipe(fs.createWriteStream('output/path'));
+      } else {
+        entry.autodrain();
+      }
+    });
+    // from https://www.npmjs.com/package/unzipper
+    */
+    const message = `${file.originalname} was unzipped`;
+    res.status(200).json({
+      message
+    })
   }
 
 }
