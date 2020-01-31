@@ -7,11 +7,15 @@ import * as mime from "mime";
 import * as uuidv4 from "uuid/v4";
 import * as aws from "aws-sdk";
 import * as unzipper from "unzipper";
+import * as xml2js from "xml2js";
 
 import IController from "interfaces/IController.interface";
+import * as zip from "../utils/zip";
 
 class ScormController implements IController {
-  public router;
+  public router: express.Router;
+  public parser: xml2js.Parser;
+  public scorm: Object;
 
   private upload;
   private tmpStorage;
@@ -20,6 +24,8 @@ class ScormController implements IController {
 
   constructor() {
     this.router = express.Router();
+    this.parser = new xml2js.Parser();
+    this.scorm = {};
 
     const tmpStorage = `${__dirname}/../tmp/`;
     this.tmpStorage = tmpStorage;
@@ -49,11 +55,7 @@ class ScormController implements IController {
       this.upload.single("scormfile"),
       this.uploadToS3
     );
-    this.router.post(
-      "/parse",
-      this.upload.single("scormfile"),
-      this.parse
-    );
+    this.router.post("/parse", this.upload.single("scormfile"), this.parse);
   }
 
   private uploadToS3 = (req, res) => {
@@ -91,35 +93,78 @@ class ScormController implements IController {
     });
   };
 
-  private parse = (req, res) => {
-    const file = req.file;
+  private parse = async (req, res) => {
+    const file: Express.Multer.File = req.file;
     if (!file) {
-      res.status(500).send("Sorry");
+      res.status(500).send("No file, sorry!");
     }
     // unzip
+    zip.parse(file, this.tmpStorage);
+/*
     fs.createReadStream(file.path)
       .pipe(unzipper.Extract({ path: this.tmpStorage }))
-    
-    /* to go over the zipped files one by one
-    .pipe(unzipper.Parse())
-    .on('entry', function (entry) {
-      const fileName = entry.path;
-      const type = entry.type; // 'Directory' or 'File'
-      const size = entry.vars.uncompressedSize; // There is also compressedSize;
-      if (fileName === "this IS the file I'm looking for") {
-        entry.pipe(fs.createWriteStream('output/path'));
-      } else {
-        entry.autodrain();
-      }
-    });
-    // from https://www.npmjs.com/package/unzipper
-    */
-    const message = `${file.originalname} was unzipped`;
-    res.status(200).json({
-      message
-    })
-  }
+      .on('entry', entry => entry.autodrain())
+      .promise()
+      .then( () => {
+        console.log(`done unzipping`);// ${file.originalname}`);
+    }, e => console.log('error',e));
 
+    fs.readdir(this.tmpStorage, (err, files) => {
+      files.forEach(file => {
+        const fileName = file;
+        const filePath = `${this.tmpStorage}/${file}`;
+
+        fs.lstat(filePath, (err, stats) => {
+          if (stats.isFile()) {
+            
+            
+            fs.unlink(filePath, err => {
+              if (err) throw err;
+              console.log(`${fileName}`);
+            });
+          }
+        });
+
+        fs.readFile(filePath, (err, data) => {
+          this.parser.parseString(data, (err, result) => {
+            if (err) throw err;
+            this.scorm[fileName] = { ...result };
+            console.log(`[${fileName}] ${result}`);
+          });
+
+          // clean-up
+          /*
+          fs.lstat(filePath, (err, stats) => {
+            if (stats.isFile()) {
+              fs.unlink(filePath, err => {
+                if (err) throw err;
+                console.log(`${fileName}`);
+              });
+            }
+          });
+          
+        });
+
+      });
+*/
+      // return response
+      const message = `${file.originalname} was unzipped and parsed`;
+      res.status(200).json({
+        message,
+        scorm: this.scorm
+      });
+    
+    // /tmp clean-up
+    /*
+    fs.rmdir(this.tmpStorage, { recursive: true }, err => {
+      if (err) throw err;
+    });
+    
+    fs.mkdir(this.tmpStorage, err => {
+      if (err) throw err;
+    });
+    */
+  };
 }
 
 export default ScormController;
